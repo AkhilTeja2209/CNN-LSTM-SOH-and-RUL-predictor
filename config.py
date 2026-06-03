@@ -1,7 +1,6 @@
 """
 config.py
-All shared constants extracted from the original notebook.
-Every other module imports from here — change values here only.
+Updated: Increased SEQUENCE_LEN for macro trends and pruned FEATURE_COLS for dimensionality reduction.
 """
 
 import os

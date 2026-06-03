@@ -1,7 +1,7 @@
 """
 data_loader.py
-Updated to fix Pandas Index clipping bugs and perfectly parse 
-the Kaggle 'cleaned_dataset' metadata structure or the original .mat files.
+Updated to fix Pandas Index clipping bugs, parse Kaggle metadata/MATLAB structures,
+clean anomalous sensor crashes, and apply EMA smoothing to the SOH curves.
 """
 
 from imports import *
@@ -21,17 +21,14 @@ def load_kaggle_cleaned_csvs(meta_path):
     """
     data_folder = os.path.join(os.path.dirname(meta_path), 'data')
     
-    # Read metadata without forcing dtype yet to avoid hidden space issues
     df_meta = pd.read_csv(meta_path)
     df_meta.columns = df_meta.columns.str.strip() 
     
-    # Bulletproof UID matching
     uid_col = next((c for c in df_meta.columns if c.lower() in ['uid', 'id', 'filename']), None)
     if uid_col:
         df_meta[uid_col] = df_meta[uid_col].astype(str).str.replace(r'\.0$', '', regex=True)
         df_meta[uid_col] = df_meta[uid_col].apply(lambda x: x.zfill(5) if x.isdigit() else x)
     
-    # Filter for discharge cycles safely
     type_col = next((c for c in df_meta.columns if 'type' in c.lower()), None)
     if type_col:
         df_meta[type_col] = df_meta[type_col].astype(str).str.lower().str.strip()
@@ -117,9 +114,17 @@ def load_kaggle_cleaned_csvs(meta_path):
         raise ValueError(f"Could not link metadata to files. Looked for {data_folder}\\{sample_uid}.csv but found nothing.")
         
     df_all = pd.DataFrame(all_records).dropna(subset=['capacity'])
+    
+    # Drop physically impossible sensor crashes 
+    df_all = df_all[df_all['capacity'] > (0.5 * df_all['nominal_capacity'])].copy()
+    
+    # Calculate base SOH
     df_all['SOH'] = (df_all['capacity'] / df_all['nominal_capacity'] * 100).clip(0, 100)
 
-    # ── THE FIX: Using np.clip to safely handle Pandas Index subtraction ───
+    # ── THE FIX: Smooth capacity regeneration spikes using EMA ──────────
+    # df_all['SOH'] = df_all.groupby('battery_id')['SOH'].transform(lambda x: x.ewm(span=7, adjust=False).mean())
+    # ────────────────────────────────────────────────────────────────────
+
     def calc_rul(grp):
         eol_indices = grp.index[grp['SOH'] < EOL_THRESHOLD].tolist()
         if eol_indices:
@@ -128,7 +133,6 @@ def load_kaggle_cleaned_csvs(meta_path):
         else:
             grp['RUL'] = np.clip(grp.index[-1] - grp.index, a_min=0, a_max=None)
         return grp
-    # ───────────────────────────────────────────────────────────────────────
 
     df_all = df_all.groupby('battery_id', group_keys=False).apply(calc_rul)
     return df_all.reset_index(drop=True)
@@ -193,9 +197,17 @@ def parse_nasa_mat(filepath):
         return df
         
     nominal_capacity = df['capacity'].iloc[0]
+    
+    # Drop physically impossible sensor crashes 
+    df = df[df['capacity'] > (0.5 * nominal_capacity)].copy()
+    
+    # Calculate base SOH
     df['SOH'] = (df['capacity'] / nominal_capacity * 100).clip(0, 100)
     
-    # ── THE FIX applied here as well for backwards compatibility ───
+    # ── THE FIX: Smooth capacity regeneration spikes using EMA ──────────
+    df['SOH'] = df['SOH'].ewm(span=7, adjust=False).mean()
+    # ────────────────────────────────────────────────────────────────────
+    
     eol_indices = df.index[df['SOH'] < EOL_THRESHOLD].tolist()
     if eol_indices:
         df['RUL'] = np.clip(eol_indices[0] - df.index, a_min=0, a_max=None)
