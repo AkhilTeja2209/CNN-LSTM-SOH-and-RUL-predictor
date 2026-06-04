@@ -42,7 +42,7 @@ You can use the pre-trained model to evaluate your own battery data. Collect a m
 ## 🚗 EV Transfer Learning
 The `transfer_learning.py` module allows you to freeze the core CNN/LSTM layers and fine-tune the dense heads on new EV battery datasets (e.g., CALCE, MATR) with minimal compute.
 
-## NOTE: 
+## ⚠️ NOTE: 
 The `run_local.py` module and `run_colab.ipynb` module are still work in progress and DO NOT include custom inference and EV transfer learning yet.
 
 ## 📊 Dataset
